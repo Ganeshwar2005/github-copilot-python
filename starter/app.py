@@ -6,7 +6,8 @@ app = Flask(__name__)
 # Keep a simple in-memory store for current puzzle and solution
 CURRENT = {
     'puzzle': None,
-    'solution': None
+    'solution': None,
+    'hints_used': 0,
 }
 
 @app.route('/')
@@ -15,10 +16,15 @@ def index():
 
 @app.route('/new')
 def new_game():
-    clues = int(request.args.get('clues', 35))
+    difficulty = request.args.get('difficulty', 'medium').lower()
+    clues = sudoku_logic.DIFFICULTY_CLUES.get(
+        difficulty,
+        sudoku_logic.DIFFICULTY_CLUES['medium'],
+    )
     puzzle, solution = sudoku_logic.generate_puzzle(clues)
     CURRENT['puzzle'] = puzzle
     CURRENT['solution'] = solution
+    CURRENT['hints_used'] = 0
     return jsonify({'puzzle': puzzle})
 
 @app.route('/check', methods=['POST'])
@@ -31,9 +37,31 @@ def check_solution():
     incorrect = []
     for i in range(sudoku_logic.SIZE):
         for j in range(sudoku_logic.SIZE):
-            if board[i][j] != solution[i][j]:
+            if board[i][j] != sudoku_logic.EMPTY and board[i][j] != solution[i][j]:
                 incorrect.append([i, j])
     return jsonify({'incorrect': incorrect})
+
+
+@app.route('/hint', methods=['POST'])
+def get_hint():
+    solution = CURRENT.get('solution')
+    puzzle = CURRENT.get('puzzle')
+    if solution is None or puzzle is None:
+        return jsonify({'error': 'No game in progress'}), 400
+
+    for row in range(sudoku_logic.SIZE):
+        for col in range(sudoku_logic.SIZE):
+            if puzzle[row][col] == sudoku_logic.EMPTY:
+                puzzle[row][col] = solution[row][col]
+                CURRENT['hints_used'] += 1
+                return jsonify({
+                    'row': row,
+                    'col': col,
+                    'value': solution[row][col],
+                    'hints_used': CURRENT['hints_used'],
+                })
+
+    return jsonify({'error': 'No empty cells remain'}), 400
 
 if __name__ == '__main__':
     app.run(debug=True)
